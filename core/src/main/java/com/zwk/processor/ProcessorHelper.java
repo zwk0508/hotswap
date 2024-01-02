@@ -1,6 +1,5 @@
 package com.zwk.processor;
 
-import java.io.File;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -23,9 +22,7 @@ public class ProcessorHelper {
     }
 
     private static Processor generateProcessor(String key) throws Exception {
-        int index = key.indexOf('(');
-        String fileName = key.substring(0, index).replace('.', File.separatorChar) + ".groovy";
-        return new ProcessorProxy(fileName);
+        return new ProcessorProxy(key);
     }
 
 

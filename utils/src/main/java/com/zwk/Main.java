@@ -1,9 +1,13 @@
 package com.zwk;
 
-import com.zwk.annotation.HotSwap;
-import javassist.*;
+import org.objectweb.asm.ClassReader;
+import org.objectweb.asm.ClassWriter;
+import org.objectweb.asm.Opcodes;
 
-import java.io.*;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.util.Enumeration;
 import java.util.HashMap;
@@ -40,27 +44,29 @@ public class Main {
 
 
     private static void processDir(String dir) throws Exception {
-        ClassPool pool = ClassPool.getDefault();
         File file = new File(dir);
-        processDir(file, pool);
+        processDir(file);
     }
 
-    private static void processDir(File file, ClassPool pool) throws Exception {
+    private static void processDir(File file) throws Exception {
         if (!file.isDirectory()) {
             if (!file.getName().endsWith(".class")) {
                 return;
             }
             byte[] bytes = Files.readAllBytes(file.toPath());
-            CtClass ctClass = pool.makeClass(new ByteArrayInputStream(bytes));
-            processMethods(ctClass);
+            ClassReader cr = new ClassReader(bytes, 0, bytes.length);
+            ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
+            MyClassVisitor classVisitor = new MyClassVisitor(Opcodes.ASM9, cw);
+            cr.accept(classVisitor, ClassReader.EXPAND_FRAMES);
+
             try (FileOutputStream outputStream = new FileOutputStream(file)) {
-                outputStream.write(ctClass.toBytecode());
+                outputStream.write(cw.toByteArray());
             }
         } else {
             File[] files = file.listFiles();
             if (files != null && files.length > 0) {
                 for (File file1 : files) {
-                    processDir(file1, pool);
+                    processDir(file1);
                 }
             }
         }
@@ -72,16 +78,17 @@ public class Main {
     private static void processJarFile(String jarFileName) throws Exception {
         File file = new File(jarFileName);
         JarFile jarFile = new JarFile(file);
-        ClassPool pool = ClassPool.getDefault();
         Enumeration<JarEntry> entries = jarFile.entries();
         Map<String, byte[]> map = new HashMap<>();
         while (entries.hasMoreElements()) {
             JarEntry jarEntry = entries.nextElement();
             if (jarEntry.getName().endsWith(".class")) {
                 InputStream inputStream = jarFile.getInputStream(jarEntry);
-                CtClass ctClass = pool.makeClass(inputStream);
-                processMethods(ctClass);
-                map.put(jarEntry.getName(), ctClass.toBytecode());
+                ClassReader cr = new ClassReader(inputStream);
+                ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
+                MyClassVisitor classVisitor = new MyClassVisitor(Opcodes.ASM9, cw);
+                cr.accept(classVisitor, ClassReader.EXPAND_FRAMES);
+                map.put(jarEntry.getName(), cw.toByteArray());
 
             }
         }
@@ -109,28 +116,13 @@ public class Main {
         }
     }
 
-    private static void processMethods(CtClass ctClass) throws NotFoundException, CannotCompileException {
-        CtMethod[] declaredMethods = ctClass.getDeclaredMethods();
-        for (CtMethod declaredMethod : declaredMethods) {
-            if (declaredMethod.hasAnnotation(HotSwap.class)) {
-
-                String longName = declaredMethod.getLongName();
-
-                String s = fortmatBody(
-                        longName,
-                        declaredMethod.getParameterTypes(),
-                        declaredMethod.getReturnType());
-                declaredMethod.insertBefore(s);
-            }
-        }
-    }
-
     private static void processFile(String fileName) throws Exception {
-        ClassPool pool = ClassPool.getDefault();
-        CtClass ctClass = pool.makeClass(new FileInputStream(fileName));
-        processMethods(ctClass);
-        byte[] bytes = ctClass.toBytecode();
-        String className = ctClass.getName();
+        ClassReader cr = new ClassReader(new FileInputStream(fileName));
+        ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
+        MyClassVisitor classVisitor = new MyClassVisitor(Opcodes.ASM9, cw);
+        cr.accept(classVisitor, ClassReader.EXPAND_FRAMES);
+        byte[] bytes = cw.toByteArray();
+        String className = cr.getClassName();
         className = className.replace('.', File.separatorChar);
         File file = new File(className + ".class");
         File parentFile = file.getParentFile();
@@ -141,97 +133,6 @@ public class Main {
             outputStream.write(bytes);
         }
 
-    }
-
-
-    private static String fortmatBody(String key, CtClass[] params, CtClass retType) {
-        StringBuilder sb = new StringBuilder();
-        int length = params.length;
-        sb.append("com.zwk.processor.Processor processor = com.zwk.processor.ProcessorHelper.getProcessor(\"")
-                .append(key)
-                .append("\");")
-                .append("boolean update = processor.isUpdate(); if (update) {")
-                .append("Object thiz = $0;")
-                .append("Object [] args = new Object[")
-                .append(length)
-                .append("];");
-        if (length > 0) {
-            for (int i = 0; i < length; i++) {
-                CtClass param = params[i];
-                sb.append("args[")
-                        .append(i)
-                        .append("] = ")
-                        .append(getParam(param, i))
-                        .append(";");
-            }
-        }
-        sb.append("Object ret = processor.process(");
-        sb.append("thiz,args);");
-        if (retType != CtClass.voidType) {
-            sb.append("return ")
-                    .append(getReturnValue(retType))
-                    .append(";");
-        }
-
-        sb.append("}");
-        return sb.toString();
-    }
-
-    private static String getReturnValue(CtClass retType) {
-        if (retType == CtClass.booleanType) {
-            return "((Boolean)ret).booleanValue()";
-        }
-        if (retType == CtClass.byteType) {
-            return "((Byte)ret).byteValue()";
-        }
-        if (retType == CtClass.shortType) {
-            return "((Short)ret).shortValue()";
-        }
-        if (retType == CtClass.intType) {
-            return "((Integer)ret).intValue()";
-        }
-        if (retType == CtClass.longType) {
-            return "((Long)ret).longValue()";
-        }
-        if (retType == CtClass.floatType) {
-            return "((Float)ret).floatValue()";
-        }
-        if (retType == CtClass.doubleType) {
-            return "((Double)ret).doubleValue()";
-        }
-        if (retType == CtClass.charType) {
-            return "((Character)ret).charValue()";
-        }
-        return "(" + retType.getName() + ")ret";
-    }
-
-    private static String getParam(CtClass param, int location) {
-        int i = location + 1;
-        if (param == CtClass.booleanType) {
-            return "Boolean.valueOf($" + i + ")";
-        }
-        if (param == CtClass.byteType) {
-            return "Byte.valueOf($" + i + ")";
-        }
-        if (param == CtClass.shortType) {
-            return "Short.valueOf($" + i + ")";
-        }
-        if (param == CtClass.intType) {
-            return "Integer.valueOf($" + i + ")";
-        }
-        if (param == CtClass.longType) {
-            return "Long.valueOf($" + i + ")";
-        }
-        if (param == CtClass.floatType) {
-            return "Float.valueOf($" + i + ")";
-        }
-        if (param == CtClass.doubleType) {
-            return "Double.valueOf($" + i + ")";
-        }
-        if (param == CtClass.charType) {
-            return "Character.valueOf($" + i + ")";
-        }
-        return "$" + (location + 1);
     }
 
 }
