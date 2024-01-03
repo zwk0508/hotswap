@@ -117,22 +117,15 @@ public class Main {
     }
 
     private static void processFile(String fileName) throws Exception {
-        ClassReader cr = new ClassReader(new FileInputStream(fileName));
+        File file = new File(fileName);
+        ClassReader cr = new ClassReader(new FileInputStream(file));
         ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
         MyClassVisitor classVisitor = new MyClassVisitor(Opcodes.ASM9, cw);
         cr.accept(classVisitor, ClassReader.EXPAND_FRAMES);
         byte[] bytes = cw.toByteArray();
-        String className = cr.getClassName();
-        className = className.replace('.', File.separatorChar);
-        File file = new File(className + ".class");
-        File parentFile = file.getParentFile();
-        if (!parentFile.exists()) {
-            parentFile.mkdirs();
-        }
         try (FileOutputStream outputStream = new FileOutputStream(file)) {
             outputStream.write(bytes);
         }
-
     }
 
 }

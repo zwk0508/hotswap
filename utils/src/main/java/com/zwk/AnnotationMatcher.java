@@ -7,5 +7,9 @@ package com.zwk;
  */
 
 public interface AnnotationMatcher extends HotSwapMatcher {
+    /**
+     * annotationClassName format like `Lcom/zwk/annotation/HotSwap;`
+     * use org.objectweb.asm.Type#getDescriptor(java.lang.Class) get annotation class descriptor
+     */
     boolean match(String annotationClassName);
 }

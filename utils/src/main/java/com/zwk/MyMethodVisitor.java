@@ -176,7 +176,6 @@ public class MyMethodVisitor extends MethodVisitor {
         return location;
     }
 
-
     @Override
     public void visitInsn(int opcode) {
         if (opcode >= Opcodes.IRETURN
